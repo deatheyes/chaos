@@ -1,0 +1,143 @@
+#! /usr/bin/env stap
+
+/*
+ * file_io_error_vfs.stp Inject IO error to the process
+ *
+ * stap -DSTP_NO_OVERLOAD file_io_error_vfs.stp -g -x pid [<r|w|rw>] [percent] [dir_name]
+ * [<r|w|rw>] means to inject delay for read, write or read and write, default "rw".
+ * [percent] is the injection probability, must be in [0, 100], default 1.
+ * [dir_name] limit the range of errors injected.
+ */
+
+global type = "rw"
+global percent = 1
+global dir_name = ""
+
+// include the common errors for the read and write.
+global write_error_codes
+global read_error_codes
+
+// specified error code
+global write_error_code
+global read_error_code
+
+function init_errors()
+{
+    write_error_codes[0] = 1   // EPERM
+    write_error_codes[1] = 4   // EINTR
+    write_error_codes[2] = 5   // EIO
+    write_error_codes[3] = 9   // EBADF
+    write_error_codes[4] = 22  // EINVAL
+    write_error_codes[5] = 27  // EFBIG
+    write_error_codes[6] = 28  // ENOSPC
+    write_error_codes[7] = 122 // EDQUOT
+
+    read_error_codes[0] = 4   // EINTR
+    read_error_codes[1] = 5   // EIO
+    read_error_codes[2] = 9   // EBADF
+    read_error_codes[3] = 22  // EINVAL
+}
+
+probe begin
+{
+    printf("begin to inject error to IO\n");
+    init_errors();
+
+    %( $# == 1 %?
+        type = @1
+    %)
+
+    %( $# == 2 %?
+        type = @1
+        percent = $2
+    %)
+
+    %( $# == 3 %?
+        type = @1
+        percent = $2
+        dir_name = @3
+    %)
+
+    %( $# == 5 %?
+        type = @1
+        percent = $2
+        dir_name = @3
+        write_error_code = $4
+        read_error_code = $5
+    %)
+}
+
+function is_target_skipped() {
+    if (target() != pid()) {
+        return 1
+    }
+    return 0
+}
+
+function hasPrefix(str, prefix) {
+    sub = substr(str, 0, strlen(prefix))
+    if (prefix == sub) {
+        return 1
+    }
+    return 0
+}
+
+probe vfs.write.return {
+    if (is_target_skipped() == 1)
+        next;
+
+    dentry = @cast(file, "file")->f_path->dentry;
+    //inode = @cast(dentry, "dentry")->d_inode;
+
+    path = task_dentry_path(task_current(), dentry, @cast(file, "file")->f_path->mnt)
+    if (hasPrefix(path, dir_name) == 0)
+        next;
+
+    if ($return < 0)
+        next;
+
+    if (type != "w" && type != "rw")
+        next;
+
+    if (randint(100) >= percent)
+        next;
+
+    if (write_error_code != 0)
+       $return = -write_error_code
+    else
+       $return = -write_error_codes[randint(8)]
+
+    /*printf("Write file '%s' dir '%s' of size '%d' on device %s return %d\n",
+    d_name(dentry), path, @cast(inode, "inode")->i_size,
+    kernel_string(@cast(inode, "inode")->i_sb->s_id), $return);*/
+}
+
+probe vfs.read.return {
+    if (is_target_skipped() == 1)
+        next;
+
+    dentry = @cast(file, "file")->f_path->dentry;
+    //inode = @cast(dentry, "dentry")->d_inode;
+
+    path = task_dentry_path(task_current(), dentry, @cast(file, "file")->f_path->mnt)
+    if (hasPrefix(path, dir_name) == 0)
+        next;
+
+    if ($return < 0)
+        next;
+
+    if (type != "r" && type != "rw")
+        next;
+
+    if (randint(100) >= percent)
+        next;
+
+    if (read_error_code != 0)
+       $return = -read_error_code
+    else
+       $return = -read_error_codes[randint(4)]
+
+    /*printf("Read file '%s' dir '%s' of size '%d' on device %s return %d\n",
+    d_name(dentry), path, @cast(inode, "inode")->i_size,
+    kernel_string(@cast(inode, "inode")->i_sb->s_id), $return);*/
+}

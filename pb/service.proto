@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package pb;
+
+service Controller {
+    rpc Register(RegisterRequest) returns (RegisterResponse) {}
+}
+
+message RegisterRequest {
+   string Role = 1;                  // role of agent
+   string Address = 2;               // address of agent
+   string Version = 3;               // version of agent
+   map<string, string> Selector = 4; // agent selecor
+}
+
+message RegisterResponse {
+    int32 Code = 1;
+    string ErrorMessage = 2;
+}
+
+service Agent {
+    rpc Exec(ExecRequest) returns (ExecResponse) {}
+    rpc Nemesis(NemesisRequest) returns (NemesisResponse) {}
+}
+
+message ExecRequest {
+    string Command = 1;
+    bool Background = 2;
+}
+
+message ExecResponse {
+    string Stdout = 1;
+    string Stderr = 2;
+    int32 Code = 3;
+    string ErrorMessage = 4;
+}
+
+message NemesisRequest {
+    int32 Type = 1;                    // name of a kind of nemesis
+    string Name = 2;                   // name of the peer task
+    map<string, string> Arguments = 3; // arguments required by the nemesis
+    string ID = 4;                     // instance id of a nemesis
+    int32 Op = 5;                      // operation to execute
+}
+
+message NemesisResponse {
+    int32 Code = 1;
+    string ErrorMessage = 2;
+    string ID = 3;                      // instance id of a nemesis
+}
